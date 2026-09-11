@@ -1,0 +1,38 @@
+{
+  "name": "dsh-status-dot",
+  "version": "1.0.0",
+  "description": "DSH server status indicator: a dot in the conversation header showing whether the local DSH service is alive, with a hover tooltip and a click-to-expand READ-ONLY panel (uptime / PID / ports). This edition contains no control actions at all.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "status",
+    "server",
+    "monitor",
+    "health"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "author": "StarflowDream",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StarflowDream/dsh-status-dot.git",
+    "directory": "dsh-status-dot"
+  },
+  "homepage": "https://github.com/StarflowDream/dsh-status-dot#readme",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

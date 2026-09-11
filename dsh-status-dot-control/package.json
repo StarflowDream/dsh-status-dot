@@ -1,0 +1,39 @@
+{
+  "name": "dsh-status-dot-control",
+  "version": "1.0.0",
+  "description": "CONTROL edition of dsh-status-dot: the same dot and panel, plus start / stop / restart / logs actions forwarded to your own meowdsh:// protocol handler. You must register that handler yourself — see the repository README.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "status",
+    "server",
+    "monitor",
+    "control",
+    "restart"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "author": "StarflowDream",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StarflowDream/dsh-status-dot.git",
+    "directory": "dsh-status-dot-control"
+  },
+  "homepage": "https://github.com/StarflowDream/dsh-status-dot#readme",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

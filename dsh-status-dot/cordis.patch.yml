@@ -1,0 +1,6 @@
+# dsh-status-dot bundle patch: inserts this plugin into a profile's layer stack.
+- insert:
+    - id: dsh-status-dot
+      name: 'dsh-status-dot'
+      config:
+        enabled: true
