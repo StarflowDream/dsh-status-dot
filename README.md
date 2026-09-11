@@ -11,6 +11,22 @@
 
 两个包注册**相同的 HTTP 路由**，所以不建议同时安装 —— 二选一。
 
+## 长什么样
+
+在会话头部（右起第三个位置）：
+
+![状态圆点](assets/dot-in-header.png)
+
+鼠标悬停 —— 气泡显示运行时长与 PID：
+
+![悬停气泡](assets/dot-hover.png)
+
+点一下 —— 展开面板（控制版另有三颗动作按钮）：
+
+![展开面板](assets/dot-panel.png)
+
+> 三张都是在真实运行中的 DSH 界面上直接截的（3 倍放大），没有任何后期绘制。
+
 ---
 
 ## 安装
@@ -78,4 +94,4 @@ MIT —— 见 [LICENSE](./LICENSE)。
 
 ## English summary
 
-A status dot for the DeepSeek Harness conversation header: hover for uptime/PID, click for a read-only panel (uptime / PID / port state). This repository ships **two self-contained packages** — `dsh-status-dot` (read-only; contains no control channel at all) and `dsh-status-dot-control` (adds start / stop / restart / logs, forwarded to your own `meowdsh://` protocol handler). Install exactly one of them: both register the same HTTP routes. Install from the tarballs in `dist/` (a plain repository tarball will not work — the packages live in subdirectories). Restart `dsh web` afterwards. Security properties are load-bearing and documented in the Chinese section above: no outbound network traffic, routes pass through DSH's own browser fence (401 without a cookie), no CORS headers, minimal response body, nothing written to disk.
+A status dot for the DeepSeek Harness conversation header: hover for uptime/PID, click for a read-only panel (uptime / PID / port state). The three screenshots at the top are captured from a live DSH UI at 3× zoom. This repository ships **two self-contained packages** — `dsh-status-dot` (read-only; contains no control channel at all) and `dsh-status-dot-control` (adds start / stop / restart / logs, forwarded to your own `meowdsh://` protocol handler). Install exactly one of them: both register the same HTTP routes. Install from the tarballs in `dist/` (a plain repository tarball will not work — the packages live in subdirectories). Restart `dsh web` afterwards. Security properties are load-bearing and documented in the Chinese section above: no outbound network traffic, routes pass through DSH's own browser fence (401 without a cookie), no CORS headers, minimal response body, nothing written to disk.
