@@ -369,10 +369,6 @@ window.__ModuleLoader__.load({
       ];
 
       for (const slotName of CANDIDATES) {
-        // Only leave this candidate list once a register call really succeeded:
-        // a slot can exist yet refuse this component, and breaking there would
-        // leave the dot invisible with no clue anywhere in the UI.
-        let registeredHere = false;
         try {
           const ret = slots.inject(slotName, () => {
             log('slot available -> registering into ' + slotName);
@@ -388,7 +384,6 @@ window.__ModuleLoader__.load({
               try {
                 const r = slots.register(opts, Component);
                 if (typeof r === 'function') disposers.push(r);
-                registeredHere = true;
                 log('register OK for ' + slotName + ' opts=' + JSON.stringify(opts) + ' (returned ' + typeof r + ')');
                 return;
               } catch (e) {
@@ -397,10 +392,6 @@ window.__ModuleLoader__.load({
             }
           });
           if (typeof ret === 'function') disposers.push(ret);
-          if (!registeredHere) {
-            log('inject(' + slotName + ') attached but register never succeeded -> next slot');
-            continue;
-          }
           log('inject(' + slotName + ') attached');
           break;
         } catch (e) {

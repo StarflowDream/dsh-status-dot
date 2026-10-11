@@ -38,7 +38,7 @@
 dsh plugin --profile web add https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.0/dsh-status-dot-1.0.0.tgz
 
 # 控制版（与上面二选一）
-dsh plugin --profile web add https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.2/dsh-status-dot-control-1.0.2.tgz
+dsh plugin --profile web add https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.3/dsh-status-dot-control-1.0.3.tgz
 ```
 
 ⚠️ **不要用仓库 tarball**（`.../tar.gz/<sha>`）：本仓库两个包在子目录里，压缩包根目录没有 `package.json`，pnpm 会直接失败。请用上面的 `dist/` 包。
@@ -128,6 +128,13 @@ HTTP 那条走不通时（比如旧版插件、服务端半边不在），客户
 
 ## 更新记录
 
+### v1.0.3（2026-10-11）—— 控制版：修掉 1.0.2 的客户端回归
+
+- **1.0.2 的客户端改动会让桌面端启动失败，这一版把它逐字节回滚了。** 1.0.2 把"候选槽位只要存在就停"改成"只有 `register` 真的成功才停，否则继续试下一个槽位"；但插件加载器的注入回调是**延后执行**的，于是"注册成功"这个判断在循环里永远为假，圆点组件被塞进**所有**候选槽位，桌面端 Web 启动期 `@deepseek-ai/dsh-client-ui-sidebar` / `@deepseek-ai/dsh-client-ui-conversation` 两个官方插件直接 `failed`（`web boot: 11 entries did not activate`），应用弹「应用无法启动或已意外停止」。现已回滚到 1.0.1 那一版客户端代码（sha256 前 16 位 `cdbf9e1b4dae6f8a`，此前连跑一整天没出过问题），并加了一条判据禁止这种写法回来。
+- **装了 1.0.2 的请换 1.0.3**：1.0.2 在桌面端会导致启动失败（Web 端也可能面板不出现）。
+- **1.0.2 的其余修复全部保留**（重启 6s→3s、`relaunch` 先等旧进程消失、动作必须 POST、`via` 只回文件名、主端口取套接字、Node 太老回 500、`stop` 端口探针、双引号拒绝——详见下面 v1.0.2 一节）：它们都在服务端，不参与 Web 启动，与这次回归无关。
+- 只读版仍是 1.0.0，无改动。
+
 ### v1.0.2（2026-10-11）—— 控制版：重启更快，一批审计修复
 
 - **重启更快：固定等待 6s → 3s。** 客户端点下去后本来就先等 1s 才触发动作，那 6 秒只是"让回复先到页面"的余量，砍掉 3 秒。
@@ -136,7 +143,7 @@ HTTP 那条走不通时（比如旧版插件、服务端半边不在），客户
 - **响应不再回绝对路径**：`via` 原来会回 `wscript C:\Users\<用户名>\…`，与"响应不含任何文件系统路径"的自述冲突；现在只回文件名。
 - **主端口优先取请求套接字**：反代/隧道下 `Host` 头带的是入口端口（或没端口），原来会回落到写死的 3080、把在线服务画成离线；现在按 `req.socket.localPort` → `Host` → 默认 排序，`portSource` 说明用了哪一个。
 - **不再是"报了成功其实没动"**：Node < 20.16（没有 `process.getBuiltinModule`）时直接回 500 带原因并声明 `engines.node >= 20.16`；`stop` 找不到同名进程时会探一下端口（动作请求会把自己的端口传下去），端口还在听就记 FAIL。
-- **面板更不容易整块不出现**：客户端原来只要槽位存在就 `break`，哪怕 register 被拒；现在只有 register 真的成功才停，否则继续试下一个候选槽位。
+- ~~**面板更不容易整块不出现**：客户端原来只要槽位存在就 `break`，哪怕 register 被拒；现在只有 register 真的成功才停，否则继续试下一个候选槽位。~~ **⚠️ 这条在 v1.0.3 被回滚了**：注入回调是延后执行的，"注册成功"这个判断在循环里永远看不到，结果组件被注册进所有候选槽位、桌面端起不来（见上）。
 - 其它：`appPath`/`processName` 含双引号直接拒绝；围栏遇到非数字 rejection 回落到 403；两处与实现不符的文案改掉。**只读版仍是 1.0.0，无改动。**
 
 ### v1.0.1（2026-10-11）—— 控制版：开箱即用

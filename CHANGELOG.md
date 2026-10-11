@@ -2,6 +2,21 @@
 
 本仓库有两个包：`dsh-status-dot`（只读版）与 `dsh-status-dot-control`（控制版）。两包各自独立发版，安装物是 `dist/` 下的 tarball。
 
+## dsh-status-dot-control v1.0.3 — 2026-10-11
+
+**一句话：回滚 1.0.2 里那处会让桌面端启动失败的客户端改动；1.0.2 的服务端修复全部保留。**
+
+### 修掉的（一条，但很致命）
+
+- **1.0.2 引入的客户端回归：装了之后桌面端每次启动都弹「应用无法启动或已意外停止」。** 1.0.2 把候选槽位的循环从"注入成功就 `break`"改成"只有 `register` 返回成功才 `break`，否则 `continue` 试下一个槽位"。但插件加载器的 `inject` 回调是**延后执行**的，"注册成功"这个标记在循环里永远看不到 ⇒ 圆点组件被注册进**所有**候选槽位（`conversation.session.header.utilities`、`conversation.session.header.actions`、`conversation.session.header`、`conversation.input.model`、`sidebar`）⇒ 桌面端 Web 启动期 `@deepseek-ai/dsh-client-ui-sidebar` 与 `@deepseek-ai/dsh-client-ui-conversation` 两个官方插件 `failed`（`Error: web boot: 11 entries did not activate`）。
+- 修法：`lib/client.js` 在四个副本里**逐字节回滚**到 1.0.1 的那一版（sha256 前 16 位 `cdbf9e1b4dae6f8a`）。判据 `checks/dot-control-package.check.mjs` 新增第 9 段"客户端回归闸"：出现 `registeredHere` 直接失败，且必须保持"attach 成功立刻 `break`"的已知 good 形状。
+
+### 保留（1.0.2 的服务端修复，与 Web 启动无关）
+
+- 重启固定等待 6s → 3s；延迟启动走 `relaunch`（先等旧进程真的消失，最多 25s，消除"停掉了却没起来"的时间窗反转）；动作必须 POST（否则 405）；`via` 只回文件名；主端口按 `req.socket.localPort` → `Host` → 默认 排序；Node < 20.16 直接回 500 并声明 `engines.node >= 20.16`；`stop` 找不到同名进程时探端口并记 FAIL；`appPath` / `processName` 含双引号直接拒绝；围栏遇非数字 rejection 回落 403。
+
+只读版 `dsh-status-dot` 仍为 1.0.0，本次无改动。
+
 ## dsh-status-dot-control v1.0.2 — 2026-10-11
 
 **一句话：重启少等 3 秒，并修掉一批"看着成功、其实没做到"的边角。**
