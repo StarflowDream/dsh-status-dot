@@ -8,9 +8,10 @@ window.__ModuleLoader__.load({
     // NOTE: const declarations must come BEFORE any use. Declaring BUILD after
     // the log() call below threw "Cannot access 'BUILD' before initialization"
     // (temporal dead zone) and took the whole DSH UI down with it.
-    const BUILD = 'dot-v10-control';     // bump on every client change
+    const BUILD = 'dot-v11-http-control';     // bump on every client change
     const LOG_URL = '/dsh-status-dot/log';
     const STATUS_URL = '/dsh-status-dot/status';
+    const ACTION_URL = '/dsh-status-dot/action';   // fires the OS handler server-side
     const POLL_MS = 3000;
     // ---------------------------------------------------------------------------
     // CONTROL EDITION (package: dsh-status-dot-control).
@@ -74,10 +75,28 @@ window.__ModuleLoader__.load({
     // knows how to start or stop DSH by itself — that lives in YOUR handler
     // script (see README "Control edition setup"). No handler registered means
     // the button simply does nothing.
+    //
+    // 2026-10-11: the desktop app denies window.open() for every scheme but
+    // http(s) and preventDefaults any will-navigate that is not dsh-app: or
+    // same-origin http, so the protocol call never left the renderer there. Ask
+    // the server half first (POST /dsh-status-dot/action -> wscript ->
+    // dsh-control.vbs -> dsh-control.ps1) and keep the protocol call as the
+    // fallback for a plain browser or an older server half.
     const callProtocol = (action) => {
-      log('protocol call: ' + action);
-      try { window.open(PROTOCOL_BASE + action, '_self'); }
-      catch (e) { try { window.location.href = PROTOCOL_BASE + action; } catch (e2) { } }
+      const useProtocol = (why) => {
+        log('protocol fallback (' + why + '): ' + action);
+        try { window.open(PROTOCOL_BASE + action, '_self'); }
+        catch (e) { try { window.location.href = PROTOCOL_BASE + action; } catch (e2) { } }
+      };
+      log('action: ' + action + ' -> ' + ACTION_URL);
+      try {
+        fetch(ACTION_URL + '?action=' + encodeURIComponent(action), { method: 'POST', cache: 'no-store' })
+          .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+          .then((data) => log('action accepted: ' + action + ' ' + JSON.stringify(data).slice(0, 140)))
+          .catch((e) => useProtocol(e && e.message ? e.message : String(e)));
+      } catch (e) {
+        useProtocol(e && e.message ? e.message : String(e));
+      }
     };
 
     const useStatus = () => {
@@ -218,9 +237,21 @@ window.__ModuleLoader__.load({
             h('div', { style: rowStyle }, h('span', { style: keyStyle }, '运行'), h('span', { style: valStyle }, fmtUptime(d.uptimeMs))),
             h('div', { style: rowStyle }, h('span', { style: keyStyle }, 'PID'), h('span', { style: valStyle }, String(d.pid ?? '—'))),
             h('div', { style: rowStyle }, h('span', { style: keyStyle }, '端口'), h('span', { style: portRowStyle },
-              Object.keys(d.ports || {}).map((p) => h('span', { key: p, style: portItemStyle },
-                dot(d.ports[p] ? 'on' : 'off', 7, 12),
-                h('span', { style: valStyle }, p))))),
+              d.mainPort
+                ? h('span', { style: portItemStyle },
+                  dot(d.mainPortListening === false ? 'off' : 'on', 7, 12),
+                  h('span', { style: valStyle }, String(d.mainPort)))
+                : h('span', { style: valStyle }, '—'))),
+            // Auxiliary services the user asked to watch (remote entry, relay...).
+            // Deliberately a separate row and a separate key so they can never be
+            // read as "the main service listens here".
+            Object.keys(d.extraPorts || {}).length
+              ? h('div', { style: rowStyle }, h('span', { style: keyStyle }, '其他服务'), h('span', { style: portRowStyle },
+                Object.keys(d.extraPorts).map((p) => h('span', { key: p, style: portItemStyle },
+                  dot(d.extraPorts[p] ? 'on' : 'off', 7, 12),
+                  h('span', { style: valStyle },
+                    (d.extraPortLabels && d.extraPortLabels[p] ? d.extraPortLabels[p] + ' ' : '') + p)))))
+              : null,
             // The Node version row is gone on purpose: a status dot should answer
             // "is it alive, are the ports up" and nothing else. /dsh-status-dot/status
             // still returns `node` for anyone who actually needs it.

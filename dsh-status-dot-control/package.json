@@ -1,7 +1,7 @@
 {
   "name": "dsh-status-dot-control",
-  "version": "1.0.0",
-  "description": "CONTROL edition of dsh-status-dot: the same dot and panel, plus start / stop / restart / logs actions forwarded to your own meowdsh:// protocol handler. You must register that handler yourself — see the repository README.",
+  "version": "1.0.1",
+  "description": "CONTROL edition of dsh-status-dot: the same dot and panel, plus start / stop / restart / logs actions run by a helper script bundled with this package (install-and-use, nothing to register) — or forwarded to your own meowdsh:// handler via config.controlVbs.",
   "keywords": [
     "deepseek-harness",
     "dsh",

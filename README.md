@@ -7,7 +7,7 @@
 | 包 | 做什么 | 控制动作 |
 |---|---|---|
 | [`dsh-status-dot`](./dsh-status-dot) | 圆点 + 悬停气泡 + 只读面板 | **完全没有** —— 代码里根本不存在控制通道 |
-| [`dsh-status-dot-control`](./dsh-status-dot-control) | 同样的圆点与面板，另有 启动 / 关闭 / 重启 / 日志 | 交给你自己的 `meowdsh://` 协议处理程序 |
+| [`dsh-status-dot-control`](./dsh-status-dot-control) | 同样的圆点与面板，另有 启动 / 关闭 / 重启 / 日志 | **装完即用**：先走同源 HTTP 动作路由，默认交给随包自带脚本执行（想接自己的脚本用 `controlVbs` 覆盖），走不通才回退到 `meowdsh://` 协议处理程序 |
 
 两个包注册**相同的 HTTP 路由**，所以不建议同时安装 —— 二选一。
 
@@ -38,7 +38,7 @@
 dsh plugin --profile web add https://raw.githubusercontent.com/StarflowDream/dsh-status-dot/main/dist/dsh-status-dot-1.0.0.tgz
 
 # 控制版（与上面二选一）
-dsh plugin --profile web add https://raw.githubusercontent.com/StarflowDream/dsh-status-dot/main/dist/dsh-status-dot-control-1.0.0.tgz
+dsh plugin --profile web add https://raw.githubusercontent.com/StarflowDream/dsh-status-dot/main/dist/dsh-status-dot-control-1.0.1.tgz
 ```
 
 ⚠️ **不要用仓库 tarball**（`.../tar.gz/<sha>`）：本仓库两个包在子目录里，压缩包根目录没有 `package.json`，pnpm 会直接失败。请用上面的 `dist/` 包。
@@ -49,7 +49,7 @@ dsh plugin --profile web add https://raw.githubusercontent.com/StarflowDream/dsh
 dsh plugin --profile web add file:/path/to/dsh-status-dot/dsh-status-dot
 ```
 
-装完**必须重启 `dsh web`** —— 插件 bundle 只在启动时并入 profile 层栈。圆点出现在每个会话的头部（欢迎页没有会话头部，先打开一条会话）。
+装完**必须重启 DSH**（`dsh web` 或桌面端应用）—— 插件 bundle 只在启动时并入 profile 层栈。圆点出现在每个会话的头部（欢迎页没有会话头部，先打开一条会话）。
 
 ## 配置
 
@@ -62,21 +62,61 @@ dsh plugin --profile web add file:/path/to/dsh-status-dot/dsh-status-dot
     ports: [3080]             # 要探测的端口，默认 [3080]
 ```
 
-## 控制版需要自己配脚本
+**支持哪些入口（不用改配置）**：主端口不是写死的，而是从请求的 `Host` 头推出来 —— 所以 `dsh web`（默认 3080）和 **DSH 桌面端**（默认 19387）都能直接用，换端口、两个入口同时开着也不影响。要顺带盯的**额外**服务（例如手机登录入口 8898）用 `extraPorts` 列：
 
-控制版**自己不会启停任何东西**：它只是打开 `meowdsh://<动作>`（`start` / `stop` / `restart` / `logs`），由操作系统交给**你自己的处理器脚本**。没有注册处理器时，点按钮什么也不会发生。
+```yaml
+    extraPorts: [8898, 8899]                          # 或 [{ port: 8898, label: phone-login }]
+```
 
-Windows 上的做法是注册一个 `HKCU\Software\Classes\meowdsh` 协议项，指向为你的环境做实际启停的脚本。若你已用别的协议名，改 `dsh-status-dot-control/lib/client.js` 里的 `PROTOCOL_BASE` 即可。
+## 控制版：装完即用，动作交给谁可以换
+
+控制版**自己不启停任何东西** —— 它只负责把动作交出去。交出去有两条路，优先第一条。
+
+**① 同源 HTTP 动作路由（默认路径）**
+
+服务端半边注册 `POST /dsh-status-dot/action?action=<start|stop|restart|logs>`。这条路由和状态端点走**同一套 DSH 浏览器围栏**（没有有效 DSH cookie 一律 401），并且它**不自己动手**：命中后隔 1 秒，用独立进程执行处理器脚本 ——
+
+```
+wscript.exe <controlVbs> meowdsh://<动作> [appPath] [processName]
+```
+
+- 1 秒延迟刻意留在服务端进程里，好让 HTTP 响应先回到页面再动手。
+- 经 `wscript` 而不是直接 `spawn`：实测在 Windows 上 `spawn` 起 powershell 加 `detached:true` 会**静默退出、exit 0、什么都不跑**，不加 detached 又会随本进程一起死。
+- 动作白名单是 `start` / `stop` / `restart` / `logs`，其它值不会被转交。
+- **默认处理器＝随包自带的脚本**（`scripts/dsh-control.vbs` → `scripts/dsh-control.ps1`）。路径由插件用 `import.meta.url` 就地算出，包里不含任何作者机器上的路径，所以**装上就能用**：不用写脚本，也不用注册协议。它做的事：
+  - `stop`：把该 app 的**全部同名进程一次性强杀**。这个 app 的主进程、`--type=` 辅助进程和 host 子进程镜像名相同，而只有 host 子进程监听端口；只杀监听者会留下一个活着但"宿主已死"的窗口，渲染出「应用无法启动或已意外停止」。一次扫完才不会出现那个半死瞬间。
+  - `restart`：**先**安排重开（同一个 vbs，默认 6 秒后），**再**停 —— 这个脚本本身可能被这一停带走，先排后停才保证能回来。
+  - `start`：已在跑就跳过；否则依次找 config 的 `appPath` → 运行中进程的 exe 路径 → 常见安装目录（`%LOCALAPPDATA%\Programs`、`%ProgramFiles%` 等）下的 `DeepSeek Harness.exe`。
+  - `logs`：打开日志目录。`status`：只报告发现了什么（安全，测试与探针用）。
+  - 自己的日志写在 `%USERPROFILE%\.dsh\dsh-status-dot-control.log`。
+- 换成你自己的处理器（例如顺便管别的服务）就覆盖 `controlVbs`：
+
+```yaml
+- id: dsh-status-dot-control
+  config:
+    enabled: true
+    # 可选：不写＝用包里自带的那个
+    controlVbs: 'D:\your\path\dsh-control.vbs'
+    # 可选：只在 start 找不到 exe / 进程名不同时才需要
+    appPath: 'D:\your\path\DeepSeek Harness.exe'
+    processName: 'DeepSeek Harness'
+```
+
+`appPath` / `processName` 会作为额外位置参数交给处理器（不经 shell 拼串）；不认识这两个参数的自定义 handler 会直接忽略它们。
+
+**② `meowdsh://` 协议处理器（回退路径）**
+
+HTTP 那条走不通时（比如旧版插件、服务端半边不在），客户端退回打开 `meowdsh://<动作>`，由操作系统交给**你自己的处理器脚本**。没有注册处理器时这条路什么也不会发生。Windows 上的做法是注册一个 `HKCU\Software\Classes\meowdsh` 协议项，指向为你的环境做实际启停的脚本；若你已用别的协议名，改 `dsh-status-dot-control/lib/client.js` 里的 `PROTOCOL_BASE` 即可。
 
 ## 安全与隐私
 
 两个版本都是刻意做小的，下面几条是**设计约束**，改动时请保持：
 
 - **完全没有对外网络通信。** 客户端只调同源的相对路径；服务端只对 `127.0.0.1:<配置的端口>` 做 TCP 探测。没有遥测、没有统计、没有远程日志 —— **你的 API key / token 不可能经由这个插件离开本机。**
-- **路由走 DSH 自己的浏览器围栏。** 直接注册在 `webServer` 上的路由默认没有鉴权，所以两个端点都调用 `connection.requestRejection(req)`，并在该服务不可用时退回严格同源检查。**没有有效 DSH cookie 的请求一律 401。**
+- **路由走 DSH 自己的浏览器围栏。** 直接注册在 `webServer` 上的路由默认没有鉴权，所以**每个**端点（`status` / `log` / 控制版的 `action`）都调用 `connection.requestRejection(req)`，并在该服务不可用时退回严格同源检查。**没有有效 DSH cookie 的请求一律 401**（包括控制动作）。
 - **不发 CORS 头。** 客户端本来就是同源请求，所以故意不写 `Access-Control-Allow-Origin` —— 其他网站读不到这些响应。
 - **响应体最小化。** 只有 `{ alive, pid, startedAt, uptimeMs, node, ports }` —— 不含文件路径、不含命令行、不含监听 URL，因此泄漏不出用户名或目录结构。
-- **不写任何磁盘文件。**
+- **插件自己不写任何磁盘文件。** 控制版随包的处理器脚本另算：它只往 `%USERPROFILE%\.dsh\dsh-status-dot-control.log` 追加几行动作记录（谁在什么时候要求了什么、结果如何），便于事后核对；不传配置、不传进程命令行。
 - 破坏性操作（关闭 / 重启）先弹确认框；只读版里根本没有这类代码。
 
 ## 开发笔记：这个宿主的两个坑
@@ -86,6 +126,18 @@ Windows 上的做法是注册一个 `HKCU\Software\Classes\meowdsh` 协议项，
 - **形状一律用 SVG 画，别用 CSS 画。** 一个加了样式的 `<span>` 圆点会被宿主样式变成方框；而 `border-radius:50%` + `box-shadow` 画的圆环**实际渲染成圆角方形**，尽管 `getComputedStyle()` 返回的是 `50%`。
 - **圆点按钮上不要加 `title`。** 操作系统会额外画一个原生 tooltip，于是同时出现两个提示框；而且因为它是 OS 绘制的，**截图里根本拍不到**。
 
+## 更新记录
+
+### v1.0.1（2026-10-11）—— 控制版：开箱即用
+
+- **装上就能用，不用注册任何东西。** 控制版以前把动作交给「你自己注册的 `meowdsh://` 处理器」——没注册时点了不会有任何反应。现在默认交给**包里自带的脚本**（`scripts/dsh-control.vbs` → `scripts/dsh-control.ps1`），路径由插件用 `import.meta.url` 就地算出，发布包里不含任何作者机器上的路径。
+- **支持 DSH 桌面端。** 桌面端（Electron 壳）不把 `meowdsh://` 交给系统协议处理器，所以旧路径在桌面端**完全无效**。新版先走同源 HTTP 动作路由 `POST /dsh-status-dot/action`（照样过 DSH 自己的浏览器围栏，没有 cookie 一律 401），只有在浏览器 / 旧服务端上才回退协议。`dsh web` 与桌面端两种入口都可用。
+- **「关闭服务」不再弹「应用无法启动或已意外停止」。** 桌面端主进程、`--type=` 辅助进程和真正监听端口的 host 子进程**同名**；只杀监听者会留下一个活着但"宿主已死"的窗口，渲染出恢复框。随包脚本一次扫掉整棵同名进程树，`restart` 则**先**排好重开**再**停（脚本自己可能被这一停带走）。
+- **只读版没有改动**（仍是 1.0.0）：它本来就不含控制通道。
+- 想接自己的处理器：用 `controlVbs` / `appPath` / `processName` 覆盖，见上一节。
+
+完整列表见 [CHANGELOG.md](./CHANGELOG.md)。
+
 ## 许可
 
 MIT —— 见 [LICENSE](./LICENSE)。
@@ -94,4 +146,4 @@ MIT —— 见 [LICENSE](./LICENSE)。
 
 ## English summary
 
-A status dot for the DeepSeek Harness conversation header: hover for uptime/PID, click for a read-only panel (uptime / PID / port state). The three screenshots at the top are captured from a live DSH UI at 3× zoom. This repository ships **two self-contained packages** — `dsh-status-dot` (read-only; contains no control channel at all) and `dsh-status-dot-control` (adds start / stop / restart / logs, forwarded to your own `meowdsh://` protocol handler). Install exactly one of them: both register the same HTTP routes. Install from the tarballs in `dist/` (a plain repository tarball will not work — the packages live in subdirectories). Restart `dsh web` afterwards. Security properties are load-bearing and documented in the Chinese section above: no outbound network traffic, routes pass through DSH's own browser fence (401 without a cookie), no CORS headers, minimal response body, nothing written to disk.
+A status dot for the DeepSeek Harness conversation header: hover for uptime/PID, click for a read-only panel (uptime / PID / port state). The three screenshots at the top are captured from a live DSH UI at 3× zoom. This repository ships **two self-contained packages** — `dsh-status-dot` (read-only; contains no control channel at all) and `dsh-status-dot-control` (adds start / stop / restart / logs: the client POSTs to the same-origin `/dsh-status-dot/action` route, which the server half hands to the handler script bundled with the package — `wscript <scripts/dsh-control.vbs> meowdsh://<action>` — so it works right after install, with no protocol handler to register and no script of your own — control package v1.0.1: the handler ships inside the tarball, and the dot works on the DSH desktop app too, because the desktop shell never hands `meowdsh://` to the OS (the old protocol-only path did nothing there); point `config.controlVbs` at your own handler to take over, and it falls back to a registered `meowdsh://` protocol handler when the HTTP route is unavailable). The bundled handler stops the app in one single sweep of all same-named processes (killing only the port listener leaves a half-dead window that renders the crash-recovery dialog), schedules the relaunch before stopping so a restart can never lose the app, and discovers the executable from the running process or the usual install folders. Install exactly one of the packages: both register the same HTTP routes. Install from the tarballs in `dist/` (a plain repository tarball will not work — the packages live in subdirectories). Restart DSH (`dsh web` or the desktop app) afterwards — the main port comes from the request `Host` header, so both entries (default 3080 / 19387) and any other port work as-is, and `config.extraPorts` watches auxiliary services. Security properties are load-bearing and documented in the Chinese section above: no outbound network traffic, every route (including the control action) passes through DSH's own browser fence (401 without a cookie), no CORS headers, minimal response body; the plugin itself writes nothing to disk (the bundled handler only appends action lines to `%USERPROFILE%\.dsh\dsh-status-dot-control.log`).
