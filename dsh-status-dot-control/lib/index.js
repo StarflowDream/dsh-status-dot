@@ -3,10 +3,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // dsh-status-dot-control -- server half. (Identical to the read-only edition's
-// server half; the control actions leave this process only to be fired by the
-// OS protocol handler (2026-10-11: the page asks /dsh-status-dot/action because
-// the desktop app blocks meowdsh:// from the renderer). Both editions use the same endpoint paths, so install
-// ONE of them, not both.)
+// server half except for the control route below; the action itself is fired by
+// a separate wscript process through the handler script -- since 2026-10-11 the
+// page asks the same-origin /dsh-status-dot/action route, because the desktop
+// app never lets meowdsh:// out of the renderer. Both editions register the same
+// endpoint paths, so install ONE of them, not both.)
 //
 // Two endpoints on the DSH web server:
 //   GET  /dsh-status-dot/status  -> { alive, pid, startedAt, uptimeMs, node, ports }
@@ -74,8 +75,14 @@ function fenceRequest(req, res, connection) {
       rejection = undefined;
     }
     if (rejection !== undefined) {
-      res.writeHead(rejection);
-      res.end(rejection === 401 ? 'unauthorized' : 'forbidden');
+      // requestRejection() answers 401/403; anything else (a future object,
+      // null, ...) must not reach writeHead or it throws out of the route
+      // handler, so fall back to 403.
+      const code = typeof rejection === 'number' ? rejection : 403;
+      try {
+        res.writeHead(code);
+        res.end(code === 401 ? 'unauthorized' : 'forbidden');
+      } catch { /* the socket may already be gone */ }
       return false;
     }
     return true;
@@ -161,7 +168,12 @@ export function apply(ctx, config) {
     // Resolved per request: the main service port is the one that answered, so a
     // port change never requires editing a config file. Auxiliary services are
     // reported separately under extraPorts -- never mixed into the main port.
-    const mainPort = portFromHost(req && req.headers ? req.headers.host : '') || DEFAULT_PORTS[0];
+    // The port this request ARRIVED on is the truth: behind a reverse proxy or a
+    // tunnel the Host header carries the entry port (or no port at all), so the
+    // socket's own local port is tried first, then the Host header, then the default.
+    const localPort = Number.isInteger(req?.socket?.localPort) ? req.socket.localPort : 0;
+    const fromHost = portFromHost(req && req.headers ? req.headers.host : '');
+    const mainPort = localPort || fromHost || DEFAULT_PORTS[0];
     const aux = auxPorts(config);
     const auxState = {};
     for (const a of aux) auxState[a.port] = await portListening(a.port);
@@ -177,7 +189,7 @@ export function apply(ctx, config) {
       selfPort: mainPort,
       extraPorts: auxState,
       extraPortLabels: aux.reduce((acc, a) => { if (a.label) acc[a.port] = a.label; return acc; }, {}),
-      portSource: 'main port = request host (auto); extraPorts = config.extraPorts',
+      portSource: 'main port = ' + (localPort ? 'request socket' : fromHost ? 'request host header' : 'default') + ' (auto); extraPorts = config.extraPorts',
       now: Date.now(),
     });
 
@@ -237,6 +249,13 @@ export function apply(ctx, config) {
       res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(body));
     };
+    if (req.method !== 'POST') {
+      // Same rule as the log sink: a control action is a POST. A same-origin GET
+      // (address bar, <img>, prefetch) must never be able to stop the service --
+      // the fence keeps OTHER origins out, not same-origin GETs.
+      reply(405, { ok: false, error: 'method ' + String(req.method ?? '?') + ' not allowed; use POST' });
+      return;
+    }
     let action = '';
     try {
       action = String(new URL(req.url, 'http://localhost').searchParams.get('action') || '')
@@ -250,8 +269,17 @@ export function apply(ctx, config) {
     // 'restart' kill this very process. The delay lives in this process, and
     // the action itself is fired by a separate wscript process, so the page
     // always sees the response first.
-    fireControlAction(action, 1000);
-    reply(200, { ok: true, action, via: 'wscript ' + controlVbs, delayMs: 1000 });
+    const actionPort = Number.isInteger(req?.socket?.localPort) ? req.socket.localPort : portFromHost(req?.headers?.host);
+    try {
+      fireControlAction(action, 1000, actionPort);
+    } catch (error) {
+      reply(500, { ok: false, error: String(error?.message ?? error).slice(0, 200) });
+      return;
+    }
+    // Never echo the handler's absolute path: this response is documented to
+    // carry no filesystem path (an absolute one leaks the user name), so only
+    // the file name goes back.
+    reply(200, { ok: true, action, via: 'wscript · ' + String(controlVbs).split(/[\\/]/).pop(), delayMs: 1000 });
   };
 
   // ctx.inject waits for webServer instead of a point-in-time ctx.get, so the
@@ -318,17 +346,24 @@ export function apply(ctx, config) {
   const controlAppPath = typeof config?.appPath === 'string' ? config.appPath.trim() : '';
   const controlProcessName = typeof config?.processName === 'string' ? config.processName.trim() : '';
 
-  const fireControlAction = (action, delayMs) => {
+  /** Why the last action could not be fired (the reply has usually gone out by then). */
+  let lastFireError = '';
+  const fireControlAction = (action, delayMs, port = 0) => {
+    if (typeof process.getBuiltinModule !== 'function') {
+      // Silently doing nothing would make every button answer "ok" while the
+      // service never moves, so say it out loud and let the caller answer 500.
+      throw new Error('this Node (' + process.version + ") has no process.getBuiltinModule; the control actions need Node >= 20.16");
+    }
     const timer = setTimeout(() => {
       try {
         // The optional values go along as extra positional arguments. A handler
-        // that does not know them ignores them (the shipped .vbs reads [1] and
-        // [2]), and no shell is involved: spawn passes the argv verbatim.
+        // that does not know them ignores them (the shipped .vbs reads [1], [2]
+        // and [3]), and no shell is involved: spawn passes the argv verbatim.
         const child = process.getBuiltinModule('node:child_process').spawn('wscript.exe',
-          [controlVbs, 'meowdsh://' + action, controlAppPath, controlProcessName],
+          [controlVbs, 'meowdsh://' + action, controlAppPath, controlProcessName, port > 0 ? String(port) : ''],
           { stdio: 'ignore', windowsHide: true });
         child.unref();
-      } catch { /* the reply already went out; there is nowhere left to report */ }
+      } catch (error) { lastFireError = String(error?.message ?? error); }
     }, delayMs);
     if (typeof timer.unref === 'function') timer.unref();
   };
@@ -349,8 +384,8 @@ export function apply(ctx, config) {
   try {
     ctx.inject(['commands'], (cctx) => {
       const definitions = [
-        controlCommandDefinition('dsh-stop', '关闭 DSH 服务（3080）——页面不会死，可用面板 ▶ 拉回', 'stop', '正在关闭 DSH 服务…'),
-        controlCommandDefinition('dsh-restart', '重启 DSH 服务（3080）——当前会话会断开', 'restart', '正在重启 DSH 服务…'),
+        controlCommandDefinition('dsh-stop', '关闭 DSH 服务（端口自动识别，不写死）——页面不会死，可用面板 ▶ 拉回', 'stop', '正在关闭 DSH 服务…'),
+        controlCommandDefinition('dsh-restart', '重启 DSH 服务（端口自动识别，不写死）——当前会话会断开', 'restart', '正在重启 DSH 服务…'),
       ];
       for (const definition of definitions) {
         try {

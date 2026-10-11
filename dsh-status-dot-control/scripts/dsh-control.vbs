@@ -19,7 +19,7 @@
 
 Option Explicit
 
-Dim url, act, appPath, procName, delaySec, kept, i, ch
+Dim url, act, appPath, procName, delaySec, portNum, kept, i, ch
 Dim fso, shell, q, here, ps1, cmd
 
 q = Chr(34)
@@ -27,10 +27,12 @@ url = ""
 appPath = ""
 procName = ""
 delaySec = ""
+portNum = ""
 If WScript.Arguments.Count > 0 Then url = WScript.Arguments(0)
 If WScript.Arguments.Count > 1 Then appPath = WScript.Arguments(1)
 If WScript.Arguments.Count > 2 Then procName = WScript.Arguments(2)
 If WScript.Arguments.Count > 3 Then delaySec = WScript.Arguments(3)
+If WScript.Arguments.Count > 4 Then portNum = WScript.Arguments(4)
 
 ' keep the part after "://", then only letters (drops slashes and any query),
 ' lowercased. An empty action means "status", which changes nothing.
@@ -53,6 +55,7 @@ cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " & q & ps1 & q &
 If appPath <> "" Then cmd = cmd & " -AppPath " & q & appPath & q
 If procName <> "" Then cmd = cmd & " -ProcessName " & q & procName & q
 If delaySec <> "" Then cmd = cmd & " -DelaySeconds " & delaySec
+If portNum <> "" Then cmd = cmd & " -Port " & portNum
 
 ' 0 = hidden window, False = do not wait for it (this router is a one-shot hop).
 shell.Run cmd, 0, False

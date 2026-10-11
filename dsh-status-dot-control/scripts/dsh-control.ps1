@@ -3,6 +3,7 @@ param(
   [string]$AppPath = '',
   [string]$ProcessName = 'DeepSeek Harness',
   [int]$DelaySeconds = 0,
+  [int]$Port = 0,
   [switch]$DryRun
 )
 
@@ -75,7 +76,18 @@ function Resolve-AppExe {
 
 function Stop-App {
   $procs = @(Get-AppProcesses)
-  if ($procs.Count -eq 0) { Note '  no app process to stop'; return }
+  if ($procs.Count -eq 0) {
+    # No process matched -- which is NOT the same as "nothing is running": the
+    # service may be alive under another image name (config.processName). When
+    # the caller told us which port it is serving, say so instead of quietly
+    # reporting success.
+    if ($Port -gt 0 -and (Listening $Port)) {
+      Note ('  FAIL no app process named "' + $ProcessName + '" to stop, but port ' + $Port + ' is still listening -- check config.processName')
+    } else {
+      Note '  no app process to stop'
+    }
+    return
+  }
   $ids = @($procs | ForEach-Object { [int]$_.Id })
   Note ('  stopping app pids (single sweep): ' + ($ids -join ','))
   if ($DryRun) { Note '  dry run: nothing was killed'; return }
@@ -102,10 +114,19 @@ function Start-App {
   Start-Process -FilePath $exe -ErrorAction SilentlyContinue
 }
 
+function Wait-AppGone([int]$seconds) {
+  # The relaunch is scheduled BEFORE the stop (this script may die with the app),
+  # so it must not start while the old processes still hold the port: Start-App
+  # would answer 'already running' and the restart would leave nothing up.
+  $deadline = (Get-Date).AddSeconds($seconds)
+  while ((Get-Date) -lt $deadline -and @(Get-AppProcesses).Count -gt 0) { Start-Sleep -Milliseconds 400 }
+  return (@(Get-AppProcesses).Count -eq 0)
+}
+
 function Schedule-Relaunch([int]$delay) {
   $vbs = Join-Path $PSScriptRoot 'dsh-control.vbs'
   if (-not (Test-Path -LiteralPath $vbs)) { Note ('  FAIL missing ' + $vbs); return }
-  $line = '"' + $vbs + '" "meowdsh://start" "' + $AppPath + '" "' + $ProcessName + '" ' + $delay
+  $line = '"' + $vbs + '" "meowdsh://relaunch" "' + $AppPath + '" "' + $ProcessName + '" ' + $delay
   Note ('  scheduling relaunch in ' + $delay + 's (wscript, detached)')
   if ($DryRun) { Note ('  dry run: would run wscript.exe ' + $line); return }
   Start-Process -FilePath 'wscript.exe' -ArgumentList $line -WindowStyle Hidden
@@ -115,9 +136,19 @@ $act = $Action.ToLowerInvariant()
 
 # One line per run, so the log proves what the caller actually passed (the .vbs
 # forwards config appPath / processName / delay as positional arguments).
-Note ('  action=' + $act + '; processName=' + $ProcessName + '; appPath=' + $(if ($AppPath -eq '') { '(auto)' } else { $AppPath }) + '; delay=' + $DelaySeconds + $(if ($DryRun) { '; dryRun' } else { '' }))
+Note ('  action=' + $act + '; processName=' + $ProcessName + '; appPath=' + $(if ($AppPath -eq '') { '(auto)' } else { $AppPath }) + '; delay=' + $DelaySeconds + '; port=' + $Port + $(if ($DryRun) { '; dryRun' } else { '' }))
+
+if ($AppPath -match '"' -or $ProcessName -match '"') {
+  # A double quote in either value tears the argv list apart (the .vbs builds the
+  # powershell command line by hand), so refuse it instead of running something else.
+  Note '  FAIL appPath/processName must not contain a double quote'
+  exit 2
+}
 
 # Only the relaunch hop waits; a plain start/stop must act immediately.
+# v1.0.2: the fixed relaunch delay dropped 6s -> 3s. The client half already waits
+# 1s after the click before it fires the action, so 3s is plenty for the reply to
+# reach the page -- and it is 3 seconds less staring at a frozen panel.
 if ($DelaySeconds -gt 0 -and $act -eq 'start') {
   Note ('  waiting ' + $DelaySeconds + 's before start')
   Start-Sleep -Seconds $DelaySeconds
@@ -125,10 +156,18 @@ if ($DelaySeconds -gt 0 -and $act -eq 'start') {
 
 switch ($act) {
   'start' { Start-App }
+  'relaunch' {
+    # Scheduled by the restart branch before the stop; waits for the old
+    # processes to really disappear, then starts (see Wait-AppGone).
+    $gone = Wait-AppGone 25
+    Note ('  relaunch: old app gone = ' + $gone)
+    Start-App
+  }
   'stop' { Stop-App }
   'restart' {
-    $d = [Math]::Max(2, $DelaySeconds)
-    if ($DelaySeconds -le 0) { $d = 6 }
+    # Explicit: an explicit -DelaySeconds wins (never below 2s, so the reply
+    # still reaches the page first), otherwise the 3s default.
+    $d = if ($DelaySeconds -gt 0) { [Math]::Max(2, $DelaySeconds) } else { 3 }
     Schedule-Relaunch $d
     Stop-App
   }
@@ -140,5 +179,5 @@ switch ($act) {
     $app = @(Get-AppProcesses)
     Note ('  status: app processes = ' + $app.Count + '; exe = ' + (Resolve-AppExe) + '; log = ' + $log)
   }
-  default { Note "  unknown action '$act' (expected start|stop|restart|logs|status)" }
+  default { Note "  unknown action '$act' (expected start|stop|restart|relaunch|logs|status)" }
 }
