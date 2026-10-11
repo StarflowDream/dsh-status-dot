@@ -38,7 +38,7 @@
 dsh plugin --profile web add https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.0/dsh-status-dot-1.0.0.tgz
 
 # 控制版（与上面二选一）
-dsh plugin --profile web add https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.3/dsh-status-dot-control-1.0.3.tgz
+dsh plugin --profile web add https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.4/dsh-status-dot-control-1.0.4.tgz
 ```
 
 ⚠️ **不要用仓库 tarball**（`.../tar.gz/<sha>`）：本仓库两个包在子目录里，压缩包根目录没有 `package.json`，pnpm 会直接失败。请用上面的 `dist/` 包。
@@ -127,6 +127,13 @@ HTTP 那条走不通时（比如旧版插件、服务端半边不在），客户
 - **圆点按钮上不要加 `title`。** 操作系统会额外画一个原生 tooltip，于是同时出现两个提示框；而且因为它是 OS 绘制的，**截图里根本拍不到**。
 
 ## 更新记录
+
+### v1.0.4（2026-10-11）—— 控制版：把发布件补齐
+
+- **包里有文档了**：tgz 内新增 `README.md` / `LICENSE` / `CHANGELOG.md`。以前 `dsh plugin add` 装完只有 6 个代码文件，看不到任何说明。
+- **`package.json` 增加 `files` 白名单**（`lib`、`scripts`、`cordis.patch.yml`、三份文档）：打包内容从此显式声明，`.bak-*` 之类不会被顺手带走。
+- **代码与 1.0.3 完全一致**（四个代码文件 sha256 未变），不改行为。
+- 装新版：`https://github.com/StarflowDream/dsh-status-dot/releases/download/v1.0.4/dsh-status-dot-control-1.0.4.tgz`
 
 ### v1.0.3（2026-10-11）—— 控制版：修掉 1.0.2 的客户端回归
 

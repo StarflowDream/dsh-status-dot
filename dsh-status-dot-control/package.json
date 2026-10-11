@@ -1,6 +1,6 @@
 {
   "name": "dsh-status-dot-control",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CONTROL edition of dsh-status-dot: the same dot and panel, plus start / stop / restart / logs actions run by a helper script bundled with this package (install-and-use, nothing to register) — or forwarded to your own meowdsh:// handler via config.controlVbs.",
   "keywords": [
     "deepseek-harness",
@@ -31,6 +31,15 @@
     "directory": "dsh-status-dot-control"
   },
   "homepage": "https://github.com/StarflowDream/dsh-status-dot#readme",
+  "files": [
+    "lib",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

@@ -2,6 +2,17 @@
 
 本仓库有两个包：`dsh-status-dot`（只读版）与 `dsh-status-dot-control`（控制版）。两包各自独立发版，安装物是 `dist/` 下的 tarball。
 
+## dsh-status-dot-control v1.0.4 — 2026-10-11
+
+**一句话：代码没动，把发布件补齐成规范包（装完能看到文档，打包内容显式声明）。**
+
+- 包内新增 `README.md` / `LICENSE` / `CHANGELOG.md`。此前 tgz 里只有 6 个代码文件，`dsh plugin add` 装完没有任何文档。
+- `package.json` 新增 `files` 白名单：`lib`、`scripts`、`cordis.patch.yml`、`README.md`、`LICENSE`、`CHANGELOG.md` —— 打包内容显式声明，`.bak-*` / 草稿不会再被 `npm pack` 带走。
+- 行为与 1.0.3 **完全一致**：`lib/index.js`、`lib/client.js`、`scripts/dsh-control.vbs`、`scripts/dsh-control.ps1` 四个文件的 sha256 未变。
+- 判据 `checks/dot-control-package.check.mjs` 升级：版本断言 → 1.0.4，四份副本比对面扩到 8 个文件，新增"tgz 文件清单必须恰好 9 项"与"包内三份文档与源逐字节一致"。
+
+只读版 `dsh-status-dot` 仍为 1.0.0，本次无改动。
+
 ## dsh-status-dot-control v1.0.3 — 2026-10-11
 
 **一句话：回滚 1.0.2 里那处会让桌面端启动失败的客户端改动；1.0.2 的服务端修复全部保留。**
